@@ -1,5 +1,7 @@
 .DEFAULT_GOAL := all
 
+LDFLAGS=-lboost_iostreams -lboost_serialization
+
 SYS := $(shell $(CXX) -dumpmachine)
 
 ifneq (, $(findstring darwin, $(SYS)))

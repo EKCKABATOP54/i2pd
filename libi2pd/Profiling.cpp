@@ -30,7 +30,7 @@ namespace data
 
 	RouterProfile::RouterProfile ():
 		m_IsUpdated (false), m_LastDeclineTime (0), m_LastUnreachableTime (0),
-		m_LastUpdateTime (i2p::util::GetSecondsSinceEpoch ()), 
+		m_LastUpdateTime (i2p::util::GetSecondsSinceEpoch ()),
 		m_NumTunnelsAgreed (0), m_NumTunnelsDeclined (0), m_NumTunnelsNonReplied (0),
 		m_NumTimesTaken (0), m_NumTimesRejected (0), m_HasConnected (false),
 		m_IsDuplicated (false)
@@ -45,112 +45,36 @@ namespace data
 
 	void RouterProfile::Save (const IdentHash& identHash)
 	{
-		// fill sections
-		boost::property_tree::ptree participation;
-		participation.put (PEER_PROFILE_PARTICIPATION_AGREED, m_NumTunnelsAgreed);
-		participation.put (PEER_PROFILE_PARTICIPATION_DECLINED, m_NumTunnelsDeclined);
-		participation.put (PEER_PROFILE_PARTICIPATION_NON_REPLIED, m_NumTunnelsNonReplied);
-		boost::property_tree::ptree usage;
-		usage.put (PEER_PROFILE_USAGE_TAKEN, m_NumTimesTaken);
-		usage.put (PEER_PROFILE_USAGE_REJECTED, m_NumTimesRejected);
-		usage.put (PEER_PROFILE_USAGE_CONNECTED, m_HasConnected);
-		if (m_IsDuplicated)
-			usage.put (PEER_PROFILE_USAGE_DUPLICATED, true);
-		// fill property tree
-		boost::property_tree::ptree pt;
-		pt.put (PEER_PROFILE_LAST_UPDATE_TIMESTAMP, m_LastUpdateTime);
-		if (m_LastUnreachableTime)
-			pt.put (PEER_PROFILE_LAST_UNREACHABLE_TIME, m_LastUnreachableTime);
-		pt.put_child (PEER_PROFILE_SECTION_PARTICIPATION, participation);
-		pt.put_child (PEER_PROFILE_SECTION_USAGE, usage);
-
-		// save to file
-		std::string ident = identHash.ToBase64 ();
-		std::string path = g_ProfilesStorage.Path(ident);
-
-		try {
-			boost::property_tree::write_ini (path, pt);
-		} catch (std::exception& ex) {
-			/* boost exception verbose enough */
-			LogPrint (eLogError, "Profiling: ", ex.what ());
-		}
+        std::ofstream ofs(g_ProfilesStorage.Path(identHash.ToBase64 ()));
+        boost::archive::text_oarchive oa(ofs);
+        oa << *this;
+        // archive and stream closed when destructors are called
 	}
 
 	void RouterProfile::Load (const IdentHash& identHash)
 	{
-		std::string ident = identHash.ToBase64 ();
-		std::string path = g_ProfilesStorage.Path(ident);
-		boost::property_tree::ptree pt;
+        std::string ident = identHash.ToBase64 ();
+        std::string path = g_ProfilesStorage.Path(ident);
 
-		if (!i2p::fs::Exists(path))
-		{
-			LogPrint(eLogWarning, "Profiling: No profile yet for ", ident);
-			return;
-		}
+        if (!i2p::fs::Exists(path))
+        {
+            LogPrint(eLogWarning, "Profiling: No profile yet for ", ident);
+            return;
+        }
 
-		try
-		{
-			boost::property_tree::read_ini (path, pt);
-		} catch (std::exception& ex)
-		{
-			/* boost exception verbose enough */
-			LogPrint (eLogError, "Profiling: ", ex.what ());
-			return;
-		}
-
-		try
-		{
-			auto ts = pt.get (PEER_PROFILE_LAST_UPDATE_TIMESTAMP, 0);
-			if (ts)
-				m_LastUpdateTime = ts;
-			else	
-			{	
-				// try old lastupdatetime 
-				auto ut = pt.get (PEER_PROFILE_LAST_UPDATE_TIME, "");
-				if (ut.length () > 0)
-				{	
-					std::istringstream ss (ut); std::tm t;
-					ss >> std::get_time(&t, "%Y-%b-%d %H:%M:%S");
-					if (!ss.fail())
-						m_LastUpdateTime = mktime (&t); // t is local time
-				}	
-			}	
-			if (i2p::util::GetSecondsSinceEpoch () - m_LastUpdateTime < PEER_PROFILE_EXPIRATION_TIMEOUT)
-			{
-				m_LastUnreachableTime = pt.get (PEER_PROFILE_LAST_UNREACHABLE_TIME, 0);
-				try
-				{
-					// read participations
-					auto participations = pt.get_child (PEER_PROFILE_SECTION_PARTICIPATION);
-					m_NumTunnelsAgreed = participations.get (PEER_PROFILE_PARTICIPATION_AGREED, 0);
-					m_NumTunnelsDeclined = participations.get (PEER_PROFILE_PARTICIPATION_DECLINED, 0);
-					m_NumTunnelsNonReplied = participations.get (PEER_PROFILE_PARTICIPATION_NON_REPLIED, 0);
-				}
-				catch (boost::property_tree::ptree_bad_path& ex)
-				{
-					LogPrint (eLogWarning, "Profiling: Missing section ", PEER_PROFILE_SECTION_PARTICIPATION, " in profile for ", ident);
-				}
-				try
-				{
-					// read usage
-					auto usage = pt.get_child (PEER_PROFILE_SECTION_USAGE);
-					m_NumTimesTaken = usage.get (PEER_PROFILE_USAGE_TAKEN, 0);
-					m_NumTimesRejected = usage.get (PEER_PROFILE_USAGE_REJECTED, 0);
-					m_HasConnected = usage.get (PEER_PROFILE_USAGE_CONNECTED, false);
-					m_IsDuplicated = usage.get (PEER_PROFILE_USAGE_DUPLICATED, false);
-				}
-				catch (boost::property_tree::ptree_bad_path& ex)
-				{
-					LogPrint (eLogWarning, "Profiling: Missing section ", PEER_PROFILE_SECTION_USAGE, " in profile for ", ident);
-				}
-			}
-			else
-				*this = RouterProfile ();
-		}
-		catch (std::exception& ex)
-		{
-			LogPrint (eLogError, "Profiling: Can't read profile ", ident, " :", ex.what ());
-		}
+        std::ifstream ifs(path);
+        boost::archive::text_iarchive ia(ifs);
+        // read class state from archive
+        RouterProfile profile = RouterProfile();
+        try{
+            ia >> profile;
+        }
+        catch (const std::exception& ex){
+            LogPrint (eLogError, "Profiling: ", ex.what ());
+        }
+        if (i2p::util::GetSecondsSinceEpoch () - m_LastUpdateTime >= PEER_PROFILE_EXPIRATION_TIMEOUT){
+            *this = RouterProfile();
+        }
 	}
 
 	void RouterProfile::TunnelBuildResponse (uint8_t ret)
@@ -183,7 +107,7 @@ namespace data
 		m_LastUnreachableTime = unreachable ? i2p::util::GetSecondsSinceEpoch () : 0;
 		UpdateTime ();
 	}
-		
+
 	void RouterProfile::Connected ()
 	{
 		m_HasConnected = true;
@@ -193,8 +117,8 @@ namespace data
 	void RouterProfile::Duplicated ()
 	{
 		m_IsDuplicated = true;
-	}	
-		
+	}
+
 	bool RouterProfile::IsLowPartcipationRate () const
 	{
 		return 4*m_NumTunnelsAgreed < m_NumTunnelsDeclined; // < 20% rate
@@ -220,7 +144,7 @@ namespace data
 		if (IsUnreachable () || m_IsDuplicated) return true;
 		auto ts = i2p::util::GetSecondsSinceEpoch ();
 		if (ts > PEER_PROFILE_MAX_DECLINED_INTERVAL + m_LastDeclineTime) return false;
-		if (IsDeclinedRecently (ts)) return true; 
+		if (IsDeclinedRecently (ts)) return true;
 		auto isBad = IsAlwaysDeclining () || IsLowPartcipationRate () /*|| IsLowReplyRate ()*/;
 		if (isBad && m_NumTimesRejected > 10*(m_NumTimesTaken + 1))
 		{
@@ -244,7 +168,7 @@ namespace data
 		return (bool)m_LastUnreachableTime;
 	}
 
-	bool RouterProfile::IsUseful() const 
+	bool RouterProfile::IsUseful() const
 	{
 	    return IsReal () || m_NumTunnelsNonReplied >= PEER_PROFILE_USEFUL_THRESHOLD;
 	}
@@ -271,8 +195,8 @@ namespace data
 		if (it != g_Profiles.end ())
 			return it->second->IsUnreachable ();
 		return false;
-	}	
-		
+	}
+
 	void InitProfilesStorage ()
 	{
 		g_ProfilesStorage.SetPlace(i2p::fs::GetDataDir());
@@ -283,8 +207,8 @@ namespace data
 	{
 		for (auto& it: profiles)
 			if (it.second) it.second->Save (it.first);
-	}	
-		
+	}
+
 	std::future<void> PersistProfiles ()
 	{
 		auto ts = i2p::util::GetSecondsSinceEpoch ();
@@ -325,24 +249,24 @@ namespace data
 	{
 		std::vector<std::string> files;
 		g_ProfilesStorage.Traverse(files);
-		
+
 		struct stat st;
 		std::time_t now = std::time(nullptr);
-		for (const auto& path: files) 
+		for (const auto& path: files)
 		{
-			if (stat(path.c_str(), &st) != 0) 
-			{	
+			if (stat(path.c_str(), &st) != 0)
+			{
 				LogPrint(eLogWarning, "Profiling: Can't stat(): ", path);
 				continue;
 			}
-			if (now - st.st_mtime >= PEER_PROFILE_EXPIRATION_TIMEOUT) 
+			if (now - st.st_mtime >= PEER_PROFILE_EXPIRATION_TIMEOUT)
 			{
 				LogPrint(eLogDebug, "Profiling: Removing expired peer profile: ", path);
 				i2p::fs::Remove(path);
 			}
 		}
-	}	
-		
+	}
+
 	std::future<void> DeleteObsoleteProfiles ()
 	{
 		{

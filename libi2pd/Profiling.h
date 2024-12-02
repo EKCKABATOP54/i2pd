@@ -13,6 +13,8 @@
 #include <future>
 #include <boost/asio.hpp>
 #include "Identity.h"
+#include <boost/archive/text_oarchive.hpp>
+#include <boost/archive/text_iarchive.hpp>
 
 namespace i2p
 {
@@ -32,7 +34,7 @@ namespace data
 	const char PEER_PROFILE_USAGE_REJECTED[] = "rejected";
 	const char PEER_PROFILE_USAGE_CONNECTED[] = "connected";
 	const char PEER_PROFILE_USAGE_DUPLICATED[] = "duplicated";
-	
+
 	const int PEER_PROFILE_EXPIRATION_TIMEOUT = 36*60*60; // in seconds (1.5 days)
 	const int PEER_PROFILE_AUTOCLEAN_TIMEOUT = 1500; // in seconds (25 minutes)
 	const int PEER_PROFILE_AUTOCLEAN_VARIANCE = 900; // in seconds (15 minutes)
@@ -44,7 +46,7 @@ namespace data
 	const int PEER_PROFILE_UNREACHABLE_INTERVAL = 480; // in seconds (8 minutes)
 	const int PEER_PROFILE_USEFUL_THRESHOLD = 3;
 	const int PEER_PROFILE_ALWAYS_DECLINING_NUM = 5; // num declines in row to consider always declined
-	
+
 	class RouterProfile
 	{
 		public:
@@ -56,7 +58,7 @@ namespace data
 
 			bool IsBad ();
 			bool IsUnreachable ();
-			bool IsReal () const { return m_HasConnected || m_NumTunnelsAgreed > 0 || m_NumTunnelsDeclined > 0; } 
+			bool IsReal () const { return m_HasConnected || m_NumTunnelsAgreed > 0 || m_NumTunnelsDeclined > 0; }
 
 			void TunnelBuildResponse (uint8_t ret);
 			void TunnelNonReplied ();
@@ -67,15 +69,15 @@ namespace data
 
 			uint64_t GetLastUpdateTime () const { return m_LastUpdateTime; };
 			bool IsUpdated () const { return m_IsUpdated; };
-			
+
 			bool IsUseful() const;
 			bool IsDuplicated () const { return m_IsDuplicated; };
 
 			const boost::asio::ip::udp::endpoint& GetLastEndpoint () const { return m_LastEndpoint; }
 			void SetLastEndpoint (const boost::asio::ip::udp::endpoint& ep) { m_LastEndpoint = ep; }
-			bool HasLastEndpoint (bool v4) const { return !m_LastEndpoint.address ().is_unspecified () && m_LastEndpoint.port () && 
+			bool HasLastEndpoint (bool v4) const { return !m_LastEndpoint.address ().is_unspecified () && m_LastEndpoint.port () &&
 				((v4 && m_LastEndpoint.address ().is_v4 ()) || (!v4 && m_LastEndpoint.address ().is_v6 ())); }
-			
+
 		private:
 
 			void UpdateTime ();
@@ -96,10 +98,30 @@ namespace data
 			// usage
 			uint32_t m_NumTimesTaken;
 			uint32_t m_NumTimesRejected;
-			bool m_HasConnected; // successful trusted(incoming or NTCP2) connection 
+			bool m_HasConnected; // successful trusted(incoming or NTCP2) connection
 			bool m_IsDuplicated;
 			// connectivity
 			boost::asio::ip::udp::endpoint m_LastEndpoint; // SSU2 for non-published addresses
+
+
+        friend class boost::serialization::access;
+        template<class Archive>
+        void serialize(Archive & ar, const unsigned int version)
+        {
+            ar & m_LastDeclineTime;
+            ar & m_LastUnreachableTime;
+            ar & m_LastUpdateTime;
+
+            ar & m_NumTunnelsAgreed;
+            ar & m_NumTunnelsDeclined;
+            ar & m_NumTunnelsNonReplied;
+
+            ar & m_NumTimesTaken;
+            ar & m_NumTimesRejected;
+            ar & m_HasConnected;
+            ar & m_IsDuplicated;
+            ar & m_IsUpdated;
+        }
 	};
 
 	std::shared_ptr<RouterProfile> GetRouterProfile (const IdentHash& identHash);
